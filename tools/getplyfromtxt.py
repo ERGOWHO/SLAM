@@ -1,28 +1,42 @@
 import numpy as np
+import struct
 
-# 读取 full_trajectory.txt 文件
-traj_data = np.loadtxt('full_trajectory.txt')
+def read_matrices_from_txt(file_path):
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+    
+    matrices = []
+    current_matrix = []
+    for line in lines:
+        if line.strip():
+            current_matrix.append(list(map(float, line.split())))
+            if len(current_matrix) == 4:
+                matrices.append(np.array(current_matrix))
+                current_matrix = []
+    
+    return matrices
 
-# 创建 PLY 文件头
-ply_header = '''ply
-format ascii 1.0
-element vertex {0}
+def write_ply(file_path, points):
+    ply_header = f'''ply
+format binary_little_endian 1.0
+element vertex {len(points)}
 property float x
 property float y
 property float z
-property float qw
-property float qx
-property float qy
-property float qz
 end_header
-'''.format(traj_data.shape[0])
+'''
+    with open(file_path, 'wb') as f:
+        f.write(ply_header.encode('utf-8'))
+        for point in points:
+            f.write(struct.pack('fff', *point))
 
-# 将数据保存为 PLY 文件
-ply_data = np.hstack((traj_data[:, :3], traj_data[:, 3:]))
-ply_filename = 'full_trajectory.ply'
-
-with open(ply_filename, 'w') as f:
-    f.write(ply_header)
-    np.savetxt(f, ply_data, fmt='%f %f %f %f %f %f %f')
-
-print(f"PLY file saved to {ply_filename}")
+def main():
+    input_txt_path = 'reconstructions/savereconstruction/full_trajectory2.txt'
+    output_ply_path = 'reconstructions/savereconstruction/full_trajectory2.ply'
+    
+    matrices = read_matrices_from_txt(input_txt_path)
+    points = [matrix[:3, 3] for matrix in matrices]
+    write_ply(output_ply_path, points)
+    
+if __name__ == "__main__":
+    main()

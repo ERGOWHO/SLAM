@@ -13,34 +13,21 @@ import argparse
 import numpy as np
 from torch.multiprocessing import Process
 from droid import Droid
+from scipy.spatial.transform import Rotation as R
 
 import torch.nn.functional as F
 
-def qvec2rotmat(qvec):
-    return np.array([
-        [1 - 2 * qvec[2]**2 - 2 * qvec[3]**2,
-         2 * qvec[1] * qvec[2] - 2 * qvec[0] * qvec[3],
-         2 * qvec[3] * qvec[1] + 2 * qvec[0] * qvec[2]],
-        [2 * qvec[1] * qvec[2] + 2 * qvec[0] * qvec[3],
-         1 - 2 * qvec[1]**2 - 2 * qvec[3]**2,
-         2 * qvec[2] * qvec[3] - 2 * qvec[0] * qvec[1]],
-        [2 * qvec[3] * qvec[1] - 2 * qvec[0] * qvec[2],
-         2 * qvec[2] * qvec[3] + 2 * qvec[0] * qvec[1],
-         1 - 2 * qvec[1]**2 - 2 * qvec[2]**2]])
-
-def convert_poses_to_4x4(poses):
-    """
-    Convert poses from (tx, ty, tz, qx, qy, qz, qw) to 4x4 transformation matrices.
-    """
-    traj = []
-    for pose in poses:
-        tx, ty, tz, qx, qy, qz, qw = pose
-        rot_matrix = qvec2rotmat([qw, qx, qy, qz])
-        transform_matrix = np.eye(4)
-        transform_matrix[:3, :3] = rot_matrix
-        transform_matrix[:3, 3] = [tx, ty, tz]
-        traj.append(transform_matrix)
-    return np.array(traj)
+def convert_to_4x4_matrix(traj):
+    matrices = []
+    for row in traj:
+        x, y, z, tx, ty, tz, tw = row
+        translation = np.array([x, y, z])
+        rotation = R.from_quat([tx, ty, tz, tw])
+        matrix = np.eye(4)
+        matrix[:3, :3] = rotation.as_matrix()
+        matrix[:3, 3] = translation
+        matrices.append(matrix)
+    return matrices
 
 def show_image(image):
     image = image.permute(1, 2, 0).cpu().numpy()
@@ -162,8 +149,11 @@ if __name__ == '__main__':
         droid.track(t, image, intrinsics=intrinsics)
     
     traj_est_full = droid.get_full_est_traj(image_stream(args.imagedir, args.calib, args.stride))
-    # Save trajectory to a text file
-    np.savetxt("reconstructions/{}/full_trajectory.txt".format(args.reconstruction_path), traj_est_full, delimiter=" ")
+    matrices = convert_to_4x4_matrix(traj_est_full)
+    with open("reconstructions/{}/full_trajectory.txt".format(args.reconstruction_path), 'w') as f:
+        for matrix in matrices:
+            np.savetxt(f, matrix)
+            f.write('\n')
     print("Full trajectory saved to full_trajectory.txt")
 
     if args.reconstruction_path is not None:
@@ -174,8 +164,11 @@ if __name__ == '__main__':
     #     save_reconstruction(droid, args.reconstruction_path)
 
     traj_est_full2 = droid.get_full_est_traj(image_stream(args.imagedir, args.calib, args.stride))
-    # Save trajectory to a text file
-    np.savetxt("reconstructions/{}/full_trajectory2.txt".format(args.reconstruction_path), traj_est_full, delimiter=" ")
-    print("Full trajectory2 saved to full_trajectory2.txt")
+    matrices2 = convert_to_4x4_matrix(traj_est_full2)
+    with open("reconstructions/{}/full_trajectory2.txt".format(args.reconstruction_path), 'w') as f2:
+        for matrix2 in matrices2:
+            np.savetxt(f2, matrix2)
+            f2.write('\n')
+    print("Full trajectory saved to full_trajectory2.txt")
 
     
