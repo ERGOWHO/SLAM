@@ -1,42 +1,45 @@
 import numpy as np
-import struct
 
 def read_matrices_from_txt(file_path):
-    with open(file_path, 'r') as f:
-        lines = f.readlines()
+    """
+    Reads a text file containing 4x4 matrices and returns them as a numpy array.
+    """
+    # Read the file into a DataFrame
+    data = np.loadtxt(file_path)
     
-    matrices = []
-    current_matrix = []
-    for line in lines:
-        if line.strip():
-            current_matrix.append(list(map(float, line.split())))
-            if len(current_matrix) == 4:
-                matrices.append(np.array(current_matrix))
-                current_matrix = []
+    # Convert the DataFrame to a numpy array of shape (-1, 4, 4)
+    matrices = data.reshape(-1, 4, 4)
     
     return matrices
 
-def write_ply(file_path, points):
-    ply_header = f'''ply
-format binary_little_endian 1.0
-element vertex {len(points)}
+def save_matrices_to_ply(matrices, output_file):
+    """
+    Saves the translation components of 4x4 matrices to a PLY file.
+    """
+    header = '''ply
+format ascii 1.0
+element vertex {vertex_count}
 property float x
 property float y
 property float z
 end_header
 '''
-    with open(file_path, 'wb') as f:
-        f.write(ply_header.encode('utf-8'))
-        for point in points:
-            f.write(struct.pack('fff', *point))
+    vertex_count = matrices.shape[0]
+    vertices = matrices[:, :3, 3]
 
-def main():
-    input_txt_path = 'reconstructions/savereconstruction/full_trajectory2.txt'
-    output_ply_path = 'reconstructions/savereconstruction/full_trajectory2.ply'
-    
-    matrices = read_matrices_from_txt(input_txt_path)
-    points = [matrix[:3, 3] for matrix in matrices]
-    write_ply(output_ply_path, points)
-    
-if __name__ == "__main__":
-    main()
+    with open(output_file, 'w') as f:
+        f.write(header.format(vertex_count=vertex_count))
+        for vertex in vertices:
+            f.write(f'{vertex[0]} {vertex[1]} {vertex[2]}\n')
+
+# File paths
+input_file_path = 'ATE_compare/full_trajectory.txt'  # Replace with your input file path
+output_file_path = 'ATE_compare/full_trajectory.ply'  # Replace with your desired output file path
+
+# Read the matrices from the txt file
+matrices = read_matrices_from_txt(input_file_path)
+
+# Save the matrices to a PLY file
+save_matrices_to_ply(matrices, output_file_path)
+
+print(f"PLY file has been saved to {output_file_path}")

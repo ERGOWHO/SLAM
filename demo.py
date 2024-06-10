@@ -105,14 +105,14 @@ if __name__ == '__main__':
     parser.add_argument("--stride", default=1, type=int, help="frame stride")
 
     parser.add_argument("--weights", default="droid.pth")
-    parser.add_argument("--buffer", type=int, default=2000)
+    parser.add_argument("--buffer", type=int, default=2500)
     parser.add_argument("--image_size", default=[240, 320])
     parser.add_argument("--disable_vis", action="store_true")
 
     parser.add_argument("--beta", type=float, default=0.3, help="weight for translation / rotation components of flow")
-    parser.add_argument("--filter_thresh", type=float, default=2.4, help="how much motion before considering new keyframe")
+    parser.add_argument("--filter_thresh", type=float, default=1, help="how much motion before considering new keyframe")
     parser.add_argument("--warmup", type=int, default=8, help="number of warmup frames")
-    parser.add_argument("--keyframe_thresh", type=float, default=4, help="threshold to create a new keyframe")
+    parser.add_argument("--keyframe_thresh", type=float, default=1, help="threshold to create a new keyframe")
     parser.add_argument("--frontend_thresh", type=float, default=16.0, help="add edges between frames whithin this distance")
     parser.add_argument("--frontend_window", type=int, default=25, help="frontend optimization window")
     parser.add_argument("--frontend_radius", type=int, default=2, help="force edges between frames within radius")
@@ -127,6 +127,9 @@ if __name__ == '__main__':
 
     args.stereo = False
     torch.multiprocessing.set_start_method('spawn')
+    # save traj
+    output_dir = "reconstructions/{}/".format(args.reconstruction_path)
+    os.makedirs(output_dir, exist_ok=True)
 
     droid = None
 
@@ -150,11 +153,13 @@ if __name__ == '__main__':
     
     traj_est_full = droid.get_full_est_traj(image_stream(args.imagedir, args.calib, args.stride))
     matrices = convert_to_4x4_matrix(traj_est_full)
-    with open("reconstructions/{}/full_trajectory.txt".format(args.reconstruction_path), 'w') as f:
-        for matrix in matrices:
-            np.savetxt(f, matrix)
-            f.write('\n')
-    print("Full trajectory saved to full_trajectory.txt")
+
+    with open(os.path.join(output_dir, "full_trajectory_today.txt"), 'w') as f:
+        for matrix in matrices:     
+            matrix_flat = matrix.flatten()  
+            matrix_str = ' '.join(map(str, matrix_flat)) 
+            f.write(matrix_str + '\n')
+    print("Full trajectory saved to full_trajectory.txt")  
 
     if args.reconstruction_path is not None:
         save_reconstruction(droid, args.reconstruction_path)
@@ -165,10 +170,11 @@ if __name__ == '__main__':
 
     traj_est_full2 = droid.get_full_est_traj(image_stream(args.imagedir, args.calib, args.stride))
     matrices2 = convert_to_4x4_matrix(traj_est_full2)
-    with open("reconstructions/{}/full_trajectory2.txt".format(args.reconstruction_path), 'w') as f2:
-        for matrix2 in matrices2:
-            np.savetxt(f2, matrix2)
-            f2.write('\n')
-    print("Full trajectory saved to full_trajectory2.txt")
+    with open(os.path.join(output_dir, "full_trajectory2.txt"), 'w') as f2:
+        for matrix2 in matrices2:     
+            matrix_flat2 = matrix2.flatten()  
+            matrix_str2 = ' '.join(map(str, matrix_flat2)) 
+            f2.write(matrix_str2 + '\n')
+    print("Full trajectory saved to full_trajectory2.txt")  
 
     

@@ -1,72 +1,78 @@
 import numpy as np
-import struct
-from evo.core.trajectory import PosePath3D
-from evo.core.metrics import APE, PoseRelation
-from evo.tools.file_interface import read_tum_trajectory_file
+import argparse
+from evo.core.sync import associate_trajectories
+from evo.core.metrics import PoseRelation, APE
+from evo.core.trajectory import PoseTrajectory3D
+import evo.main_ape as main_ape
 
 def read_matrices_from_txt(file_path):
-    with open(file_path, 'r') as f:
-        lines = f.readlines()
-    
-    matrices = []
-    current_matrix = []
-    for line in lines:
-        if line.strip():
-            current_matrix.append(list(map(float, line.split())))
-            if len(current_matrix) == 4:
-                matrices.append(np.array(current_matrix))
-                current_matrix = []
-    
+    """
+    Reads a text file containing 4x4 matrices and returns them as a numpy array.
+    """
+    data = np.loadtxt(file_path)
+    matrices = data.reshape(-1, 4, 4)
     return matrices
 
-def write_ply(file_path, points):
-    ply_header = f'''ply
-format binary_little_endian 1.0
-element vertex {len(points)}
+def save_matrices_to_ply(matrices, output_file):
+    """
+    Saves the translation components of 4x4 matrices to a PLY file.
+    """
+    header = '''ply
+format ascii 1.0
+element vertex {vertex_count}
 property float x
 property float y
 property float z
 end_header
 '''
-    with open(file_path, 'wb') as f:
-        f.write(ply_header.encode('utf-8'))
-        for point in points:
-            f.write(struct.pack('fff', *point))
+    vertex_count = matrices.shape[0]
+    vertices = matrices[:, :3, 3]
 
-def matrices_to_posepath(matrices):
-    timestamps = np.arange(len(matrices)) * 0.1  # 假设时间间隔为0.1秒
-    positions = [matrix[:3, 3] for matrix in matrices]
-    orientations = [matrix[:3, :3] for matrix in matrices]
-    poses = [np.hstack((orientation, position.reshape(-1, 1))) for orientation, position in zip(orientations, positions)]
-    poses = [np.vstack((pose, [0, 0, 0, 1])) for pose in poses]
-    return PosePath3D(timestamps, poses)
+    with open(output_file, 'w') as f:
+        f.write(header.format(vertex_count=vertex_count))
+        for vertex in vertices:
+            f.write(f'{vertex[0]} {vertex[1]} {vertex[2]}\n')
 
-def main():
-    input_txt_path_A = 'ATE_compare/full_trajectory.txt'
-    input_txt_path_B = 'ATE_compare/camera_trajectory_gt_replica_room0.txt'
-    output_ply_path_A = 'ATE_compare/full_trajectory1.ply'
-    output_ply_path_B = 'ATE_compare/camera_trajectory_gt_replica_room0.ply'
-    
-    matrices_A = read_matrices_from_txt(input_txt_path_A)
-    matrices_B = read_matrices_from_txt(input_txt_path_B)
-    
-    points_A = [matrix[:3, 3] for matrix in matrices_A]
-    points_B = [matrix[:3, 3] for matrix in matrices_B]
-    
-    write_ply(output_ply_path_A, points_A)
-    write_ply(output_ply_path_B, points_B)
-    
-    traj_A = matrices_to_posepath(matrices_A)
-    traj_B = matrices_to_posepath(matrices_B)
-    
-    # Align and calculate ATE
-    traj_B_aligned = traj_B.align(traj_A, correct_scale=True, correct_only_scale=False)
-    
-    ape_metric = APE(PoseRelation.translation_part)
-    ape_metric.process_data((traj_A, traj_B_aligned))
-    
-    ape_result = ape_metric.get_result()
-    print(ape_result.pretty_str())
+def compute_ate(traj_ref, traj_est):
+    """
+    Computes the Absolute Trajectory Error (ATE) between two trajectories.
+    """
+    traj_ref, traj_est = associate_trajectories(traj_ref, traj_est)
+    # ape_metric = APE(PoseRelation.translation_part)
+    # ape_metric.process_data((traj_ref, traj_est))
+    # result = ape_metric.get_all_statistics()
+
+    result = main_ape.ape(traj_ref, traj_est, est_name='traj', 
+        pose_relation=PoseRelation.translation_part, align=True, correct_scale=True)
+    return result
+
+def main(args):
+    # Read the matrices from the txt files
+    matrices_A = read_matrices_from_txt(args.input_txt_path_A)
+    matrices_B = read_matrices_from_txt(args.input_txt_path_B)
+
+    # Save the matrices to PLY files
+    save_matrices_to_ply(matrices_A, args.output_ply_path_A)
+    save_matrices_to_ply(matrices_B, args.output_ply_path_B)
+
+    # Generate timestamps for the trajectories
+    timestamps_A = np.arange(matrices_A.shape[0], dtype=float)
+    timestamps_B = np.arange(matrices_B.shape[0], dtype=float)
+
+    # Convert matrices to PoseTrajectory3D for ATE computation
+    traj_ref = PoseTrajectory3D(timestamps=timestamps_A, poses_se3=matrices_A)
+    traj_est = PoseTrajectory3D(timestamps=timestamps_B, poses_se3=matrices_B)
+
+    # Compute ATE
+    ate_result = compute_ate(traj_ref, traj_est)
+    print(f"ATE Result: {ate_result}")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Compute ATE between two trajectories")
+    parser.add_argument("--input_txt_path_A", default='ATE_compare/full_trajectory2.txt')
+    parser.add_argument("--input_txt_path_B", default='ATE_compare/camera_trajectory_gt_replica_room0.txt')
+    parser.add_argument("--output_ply_path_A", default='ATE_compare/full_trajectory2.ply')
+    parser.add_argument("--output_ply_path_B", default='ATE_compare/camera_trajectory_gt_replica_room0.ply')
+    args = parser.parse_args()
+
+    main(args)

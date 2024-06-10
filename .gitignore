@@ -157,5 +157,5 @@ figures/*.pdf
 reconstructions
 thirdparty
 ATE_compare
-
+train.sh
 
