@@ -69,9 +69,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute ATE between two trajectories")
-    parser.add_argument("--input_txt_path_A", default='ATE_compare/full_trajectory.txt')
+    parser.add_argument("--input_txt_path_A", default='../splatmap/output/reconstructions/savereconstruction/full_trajectory.txt')
     parser.add_argument("--input_txt_path_B", default='ATE_compare/camera_trajectory_gt_replica_room0.txt')
-    parser.add_argument("--output_ply_path_A", default='ATE_compare/full_trajectory.ply')
+    parser.add_argument("--output_ply_path_A", default='../splatmap/output/reconstructions/savereconstruction/full_trajectory.ply')
     parser.add_argument("--output_ply_path_B", default='ATE_compare/camera_trajectory_gt_replica_room0.ply')
     args = parser.parse_args()
 
