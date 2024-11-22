@@ -14,9 +14,21 @@ import numpy as np
 from torch.multiprocessing import Process
 from droid import Droid
 from scipy.spatial.transform import Rotation as R
-
+from lietorch import SE3
 import torch.nn.functional as F
 
+def rotmat2qvec(R):
+    Rxx, Ryx, Rzx, Rxy, Ryy, Rzy, Rxz, Ryz, Rzz = R.flat
+    K = np.array([
+        [Rxx - Ryy - Rzz, 0, 0, 0],
+        [Ryx + Rxy, Ryy - Rxx - Rzz, 0, 0],
+        [Rzx + Rxz, Rzy + Ryz, Rzz - Rxx - Ryy, 0],
+        [Ryz - Rzy, Rzx - Rxz, Rxy - Ryx, Rxx + Ryy + Rzz]]) / 3.0
+    eigvals, eigvecs = np.linalg.eigh(K)
+    qvec = eigvecs[[3, 0, 1, 2], np.argmax(eigvals)]
+    if qvec[0] < 0:
+        qvec *= -1
+    return qvec
 def convert_to_4x4_matrix(traj):
     matrices = []
     for row in traj:
@@ -87,22 +99,65 @@ def save_reconstruction(droid, reconstruction_path):
     np.save("reconstructions/{}/disps.npy".format(reconstruction_path), disps)
     np.save("reconstructions/{}/poses.npy".format(reconstruction_path), poses)
     np.save("reconstructions/{}/intrinsics.npy".format(reconstruction_path), intrinsics)
-    # est_traj = []
-    # for pose in poses:
-    #     if not np.array_equal(pose, init_data):
-    #         transform_matrix = convert_poses_to_4x4(pose)
-    #         est_traj.append(transform_matrix)
 
-    # est_traj = np.array(est_traj)
-    # np.save('reconstructions/{}/est_traj.npy'.format(reconstruction_path), est_traj) 
+def getPosefromSlam(pose):
+    # format x, y, z, tx, ty, tz, tw = pose
+    pose = torch.tensor(pose, dtype=torch.float32)
+    pose = SE3(pose).inv().matrix()
 
+    R = pose[:3, :3]
+    R = R.t()
+
+    T = pose[:3, 3]
+    
+    T = torch.matmul(-R, T.t())
+ 
+    # R = R.t()
+    T = T.t()
+    T = T*10
+
+    return R,T
+
+
+def save_images_and_camera_info(droid, output_dir,traj):
+    # Save images.txt
+    # poses_matrices = np.array(poses_matrices)
+    # traj = torch.tensor(np.array(traj), dtype=torch.float32)
+    # world2cam = invert_matrix(poses_matrices)
+    with open(os.path.join(output_dir, "images.txt"), 'w') as f:
+        f.write("# Image list with two lines of data per image:\n")
+        f.write("# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n")
+        f.write("# POINTS2D[] as (X, Y, POINT3D_ID)\n")
+        # for idx ,pose in enumerate(traj, 1):
+        for idx, pose in enumerate(droid.video.poses[:droid.video.counter.value]):
+            # rotation_matrix = world2cam[idx, :3, :3]
+            # qw, qx, qy, qz = rotmat2qvec(rotation_matrix)
+            # tx, ty, tz = world2cam[idx, :3, 3]
+
+            R_matrix, T_vector = getPosefromSlam(pose)
+            
+            R_matrix = R_matrix.cpu().numpy()
+            T_vector = T_vector.cpu().numpy()
+            
+            qw, qx, qy, qz = rotmat2qvec(R_matrix)
+            tx, ty, tz = T_vector
+            image_name = f"gt_{idx}.png"  
+            f.write(f"{idx} {qw} {qx} {qy} {qz} {tx} {ty} {tz} 1 {image_name}\n")
+            f.write(f"\n")
+
+
+            
+    # Save camera.txt
+    with open(os.path.join(output_dir, "cameras.txt"), 'w') as f:
+        # Assuming the camera model is SIMPLE_PINHOLE and the parameters are as given
+        f.write("1 PINHOLE 1599 895 1554.6 1546.7 799.5 447.5\n")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--imagedir", type=str, help="path to image directory")
     parser.add_argument("--calib", type=str, help="path to calibration file")
     parser.add_argument("--t0", default=0, type=int, help="starting frame")
-    parser.add_argument("--stride", default=3, type=int, help="frame stride")
+    parser.add_argument("--stride", default=1, type=int, help="frame stride")
 
     parser.add_argument("--weights", default="droid.pth")
     parser.add_argument("--buffer", type=int, default=300)
@@ -110,9 +165,9 @@ if __name__ == '__main__':
     parser.add_argument("--disable_vis", action="store_true")
 
     parser.add_argument("--beta", type=float, default=0.3, help="weight for translation / rotation components of flow")
-    parser.add_argument("--filter_thresh", type=float, default=2.4, help="how much motion before considering new keyframe")
+    parser.add_argument("--filter_thresh", type=float, default=0, help="how much motion before considering new keyframe")
     parser.add_argument("--warmup", type=int, default=8, help="number of warmup frames")
-    parser.add_argument("--keyframe_thresh", type=float, default=4, help="threshold to create a new keyframe")
+    parser.add_argument("--keyframe_thresh", type=float, default=0, help="threshold to create a new keyframe")
     parser.add_argument("--frontend_thresh", type=float, default=16.0, help="add edges between frames whithin this distance")
     parser.add_argument("--frontend_window", type=int, default=25, help="frontend optimization window")
     parser.add_argument("--frontend_radius", type=int, default=2, help="force edges between frames within radius")
@@ -150,6 +205,7 @@ if __name__ == '__main__':
             droid = Droid(args)
         
         droid.track(t, image, intrinsics=intrinsics)
+        print(droid.video.counter.value)
     
     traj_est_full = droid.get_full_est_traj(image_stream(args.imagedir, args.calib, args.stride))
     matrices = convert_to_4x4_matrix(traj_est_full)
@@ -163,18 +219,20 @@ if __name__ == '__main__':
 
     if args.reconstruction_path is not None:
         save_reconstruction(droid, args.reconstruction_path)
+        save_images_and_camera_info(droid, output_dir,traj_est_full)
 
-    traj_est = droid.terminate(image_stream(args.imagedir, args.calib, args.stride))
+    # traj_est = droid.terminate(image_stream(args.imagedir, args.calib, args.stride))
     # if args.reconstruction_path is not None:
     #     save_reconstruction(droid, args.reconstruction_path)
+    #     save_images_and_camera_info(droid, output_dir,traj_est_full)
 
-    traj_est_full2 = droid.get_full_est_traj(image_stream(args.imagedir, args.calib, args.stride))
-    matrices2 = convert_to_4x4_matrix(traj_est_full2)
-    with open(os.path.join(output_dir, "full_trajectory2.txt"), 'w') as f2:
-        for matrix2 in matrices2:     
-            matrix_flat2 = matrix2.flatten()  
-            matrix_str2 = ' '.join(map(str, matrix_flat2)) 
-            f2.write(matrix_str2 + '\n')
-    print("Full trajectory saved to full_trajectory2.txt")  
-
+    # traj_est_full2 = droid.get_full_est_traj(image_stream(args.imagedir, args.calib, args.stride))
+    # matrices2 = convert_to_4x4_matrix(traj_est_full2)
+    # with open(os.path.join(output_dir, "full_trajectory2.txt"), 'w') as f2:
+    #     for matrix2 in matrices2:     
+    #         matrix_flat2 = matrix2.flatten()  
+    #         matrix_str2 = ' '.join(map(str, matrix_flat2)) 
+    #         f2.write(matrix_str2 + '\n')
+    # print("Full trajectory saved to full_trajectory2.txt")  
+    
     

@@ -96,7 +96,7 @@ def droid_visualization(video, device="cuda:0"):
             images = torch.index_select(video.images, 0, dirty_index)
             images = images.cpu()[:,[2,1,0],3::8,3::8].permute(0,2,3,1) / 255.0
             points = droid_backends.iproj(SE3(poses).inv().data, disps, video.intrinsics[0]).cpu()
-
+            points[..., :3] = points[..., :3] * 10
             thresh = droid_visualization.filter_thresh * torch.ones_like(disps.mean(dim=[1,2]))
             
             count = droid_backends.depth_filter(
@@ -146,7 +146,7 @@ def droid_visualization(video, device="cuda:0"):
             #   ????????????????????????????????
             pcd_points.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
 
-            o3d.io.write_point_cloud(f"./allpoints.ply", pcd_points, write_ascii=False)
+            o3d.io.write_point_cloud(f"./reconstructions/savereconstruction/points3D.ply", pcd_points, write_ascii=False)
 
             # hack to allow interacting with vizualization during inference
             if len(droid_visualization.cameras) >= droid_visualization.warmup:
